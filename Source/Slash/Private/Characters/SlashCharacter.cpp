@@ -11,11 +11,12 @@
 #include "Item/Item.h"
 #include "Item/Weapons/Weapon.h"
 #include "Animation/AnimMontage.h"
-#include "Components/BoxComponent.h"
+#include "Components/AttributeComponent.h"
 
 ASlashCharacter::ASlashCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	Attribute = CreateDefaultSubobject<UAttributeComponent>(TEXT("Attributes"));
 	
 	/* 스프링암 컴포넌트 생성 */
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -161,6 +162,7 @@ void ASlashCharacter::Dodge()
 }
 void ASlashCharacter::Attack()
 {
+	Super::Attack();
 	/* 행동액션이 없고, 무기가 장착되어있을때만 공격 몽타주 재생 */
 	if (CanAttack())
 	{
@@ -187,29 +189,6 @@ void ASlashCharacter::StrongAttack()
 			break;
 		}
 		AnimInstance->Montage_JumpToSection(SectionName, StrongAttackMontage);
-	}
-}
-
-void ASlashCharacter::PlayAttackMontage()
-{
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-
-	if (AnimInstance && AttackMontage)
-	{
-		AnimInstance->Montage_Play(AttackMontage);
-		// const int32 Selection = FMath::RandRange(0, 2);
-		FName SectionName = FName();
-		switch (Selection)
-		{
-		case 0:
-			SectionName = FName("Attack0");
-			// ++Selection;
-			break;
-
-		default:
-			break;
-		}
-		AnimInstance->Montage_JumpToSection(SectionName, AttackMontage);
 	}
 }
 
@@ -298,16 +277,6 @@ void ASlashCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Triggered, this, &ASlashCharacter::Attack);
 		/* LookAction이 Triggered 되었을 때 ASlashCharacter 클래스의  함수를 호출하도록 StrongAttackAction 입력 바인딩 */
 		EnhancedInputComponent->BindAction(StrongAttackAction, ETriggerEvent::Triggered, this, &ASlashCharacter::StrongAttack);
-	}
-}
-
-void ASlashCharacter::SetWeaponCollisionEnabled(ECollisionEnabled::Type CollisionEnabled)
-{
-	/* 장착된 무기가 있는 경우 */
-	if (EquippedWeapon && EquippedWeapon->GetWeaponBox())
-	{
-		EquippedWeapon->GetWeaponBox()->SetCollisionEnabled(CollisionEnabled);
-		EquippedWeapon->IgnoreActors.Empty();
 	}
 }
 

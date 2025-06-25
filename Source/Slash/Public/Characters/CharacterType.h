@@ -26,7 +26,6 @@ UENUM(BlueprintType)
 enum class EDeathPose : uint8
 {
 	/* 캐릭터가 다른 공격 행동을 하지못하게 */
-	EDP_Alive UMETA(DisplayName = "살아있는 상태"),
 	EDP_Death1 UMETA(DisplayName = "죽어있는 상태 1"),
 	EDP_Death2 UMETA(DisplayName = "죽어있는 상태 2"),
 	EDP_Death3 UMETA(DisplayName = "죽어있는 상태 3"),
@@ -38,10 +37,13 @@ enum class EDeathPose : uint8
 UENUM(BlueprintType)
 enum class EEnemyState : uint8
 {
+	EES_Dead UMETA(DisplayName = "사망"),
 	/* 특정 지역 순찰 */
 	EES_Patrolling UMETA(DisplayName = "순찰"),
 	/* 대상을 추격 */
 	EES_Chasing UMETA(DisplayName = "추격"),
 	/* 대상을 공격 */
-	EES_Attacking UMETA(DisplayName = "공격")
+	EES_Attacking UMETA(DisplayName = "공격"),
+	/* 대상을 공격 */
+	EES_Engaged UMETA(DisplayName = "전투중")
 };

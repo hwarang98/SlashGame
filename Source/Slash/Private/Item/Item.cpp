@@ -11,11 +11,13 @@ AItem::AItem()
 	PrimaryActorTick.bCanEverTick = true;
 
 	ItemMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ItemMeshComponent"));
+
+
 	RootComponent = ItemMesh;
 
 	Sphere = CreateDefaultSubobject<USphereComponent>(TEXT("Sphere"));
 	Sphere->SetupAttachment(GetRootComponent());
-	
+
 	EmbersEffect = CreateDefaultSubobject<UNiagaraComponent>(TEXT("Embers"));
 	EmbersEffect->SetupAttachment(GetRootComponent());
 }

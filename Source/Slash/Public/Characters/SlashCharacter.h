@@ -3,13 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
+#include "BaseCharacter.h"
 #include "InputActionValue.h"
 #include "CharacterType.h"
 #include "SlashCharacter.generated.h"
 
 class AItem;
-class AWeapon;
 class UInputAction;
 class UAnimMontage;
 class UGroomComponent;
@@ -18,7 +17,7 @@ class USpringArmComponent;
 class UInputMappingContext;
 
 UCLASS()
-class SLASH_API ASlashCharacter : public ACharacter
+class SLASH_API ASlashCharacter : public ABaseCharacter
 {
 	GENERATED_BODY()
 
@@ -26,9 +25,6 @@ public:
 	ASlashCharacter();
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
-	UFUNCTION(BlueprintCallable)
-	void SetWeaponCollisionEnabled(ECollisionEnabled::Type CollisionEnabled);
 
 	/*  { OverlappingItem = Item; } 항목이 중첩되게 적용가능 setter 함수임
 	 *  FORCEINLINE inline은 C++에서 함수의 인라인(inline) 처리를 강력하게 요청하는 언리얼 스타일의 방식이에요.
@@ -87,20 +83,17 @@ protected:
 	void StartWalking();
 	void Jump();
 	void EKeyPressed();
-	// virtual void Attack() override;
+	virtual void Attack() override;
 	void Dodge();
-	void Attack();
 	void StrongAttack();
 
 	/**
 	 * play montage functions
 	 */
-	void PlayAttackMontage();
 	void PlayEquipMontage(const FName& SectionName);
-
-	UFUNCTION(BlueprintCallable)
-	void AttackEnd();
-	bool CanAttack();
+	
+	virtual void AttackEnd() override;
+	virtual bool CanAttack() override;
 	/* 무장해제 가능 여부 */
 	bool CanDisarm();
 	/* 무장장착 가능 여부 */
@@ -153,11 +146,7 @@ private:
 	
 	/* 걷기상태 true = 뛰기, false = 걷기 */
 	bool bIsWalking = false;
-
-	/* Animation 몽타주 */
-	UPROPERTY(EditDefaultsOnly, Category = Montages)
-	UAnimMontage* AttackMontage;
-
+	
 	/* Animation 몽타주 */
 	UPROPERTY(EditDefaultsOnly, Category = Montages)
 	UAnimMontage* StrongAttackMontage;
@@ -169,9 +158,6 @@ private:
 	/* VisibleInstanceOnly = 디테일 패널에서만 볼수있음 */
 	UPROPERTY(VisibleInstanceOnly)
 	AItem* OverlappingItem;
-	
-	UPROPERTY(VisibleInstanceOnly, Category = "무기")
-	AWeapon* EquippedWeapon;
 	
 	int32 Selection = 0;
 	int32 StrongAttackSection = 0;
