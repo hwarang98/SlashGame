@@ -5,7 +5,7 @@
 
 UAttributeComponent::UAttributeComponent()
 {
-	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bCanEverTick = false;
 	
 }
 
@@ -14,9 +14,24 @@ void UAttributeComponent::BeginPlay()
 	Super::BeginPlay();
 }
 
+void UAttributeComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+}
+
+void UAttributeComponent::RegenStamina(float DeltaTime)
+{
+	Stamina = FMath::Clamp(Stamina + StaminaRegenRate * DeltaTime, 0.f, MaxStamina);
+}
+
 void UAttributeComponent::ReceiveDamage(float Damage)
 {
 	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+}
+
+void UAttributeComponent::UseStamina(float StaminaConst)
+{
+	Stamina = FMath::Clamp(Stamina - StaminaConst, 0.f, MaxStamina);
 }
 
 float UAttributeComponent::GetHealthPercent()
@@ -29,8 +44,26 @@ bool UAttributeComponent::IsAlive()
 	return Health > 0.f;
 }
 
-void UAttributeComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+float UAttributeComponent::GetStaminaPercent()
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	return Stamina / MaxStamina;
+}
+
+void UAttributeComponent::AddGold(int32 NumberOfGold)
+{
+	Gold += NumberOfGold;
+}
+
+void UAttributeComponent::AddSouls(int32 NumberOfSouls)
+{
+	Souls += NumberOfSouls;
+}
+
+void UAttributeComponent::AddHealPotion(int32 NumberOfHealPotion)
+{
+	if (NumberOfHealPotion < MaxHealth)
+	{
+		Health += FMath::Clamp(Health + NumberOfHealPotion, 0.f, MaxHealth);
+	}
 }
 

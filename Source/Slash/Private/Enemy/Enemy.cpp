@@ -2,27 +2,22 @@
 
 
 #include "Enemy/Enemy.h"
-
 #include "AIController.h"
 #include "Characters/SlashCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Perception/PawnSensingComponent.h"
 #include "Components/AttributeComponent.h"
 #include "HUD/HealthBarComponent.h"
+#include "Item/Soul.h"
 #include "Navigation/PathFollowingComponent.h"
-#include "Kismet/KismetSystemLibrary.h"
-#include "Kismet/GameplayStatics.h"
-#include "Perception/AIPerceptionComponent.h"
-#include "Perception/AISenseConfig_Sight.h"
-
-#include "Slash/DebugMacros.h"
-
+#include "Item/Weapons/Weapon.h"
+#include "Item/Soul.h"
 
 AEnemy::AEnemy()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	Attribute = CreateDefaultSubobject<UAttributeComponent>(TEXT("Attributes"));
 
 	/* 메시(Mesh)의 충돌 타입을 '월드 다이내믹'으로 설정
 	 * → 움직이는 물체로 취급되며, 다른 오브젝트와 충돌할 수 있음
@@ -39,11 +34,8 @@ AEnemy::AEnemy()
 
 	// 카메라 무시
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
-	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
-
-	Attributes = CreateDefaultSubobject<UAttributeComponent>(TEXT("속성"));
+	
 	HealthBarWidget = CreateDefaultSubobject<UHealthBarComponent>(TEXT("체력 바"));
-
 	HealthBarWidget->SetupAttachment(GetRootComponent());
 
 	GetCharacterMovement()->bOrientRotationToMovement = true;
@@ -77,74 +69,93 @@ void AEnemy::BeginPlay()
 	{
 		PawnSensing->OnSeePawn.AddDynamic(this, &AEnemy::PawnSeen);
 	}
-}
+	
+	Tags.Add(FName("Enemy"));
 
-void AEnemy::PlayHitReactMontage(const FName& SectionName)
-{
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && HitReactMontage)
+	UWorld* World = GetWorld();
+	if (World && WeaponClass)
 	{
-		AnimInstance->Montage_Play(HitReactMontage);
-		AnimInstance->Montage_JumpToSection(SectionName, HitReactMontage);
+		AWeapon* DefaultWeapon = World->SpawnActor<AWeapon>(WeaponClass);
+		DefaultWeapon->Equip(GetMesh(), FName("RightHandSocket"), this, this);
+		EquippedWeapon = DefaultWeapon;
 	}
 }
 
+/**
+ * 전투/순찰 대상을 주기적으로 확인하고 AI의 행동을 결정합니다.
+ * @param DeltaTime 프레임 간 경과 시간
+ */
+void AEnemy::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	if (IsDead()) return;
+	if (EnemyState > EEnemyState::EES_Patrolling)
+	{
+		CheckCombatTarget();
+	}
+	else
+	{
+		CheckPatrolTarget();
+	}
+}
+
+/**
+ * 적 캐릭터를 사망 상태로 전환하고 관련 처리를 수행합니다.
+ *
+ * - 적 캐릭터의 상태를 '사망'(EES_Dead)으로 설정합니다.
+ * - 사망 애니메이션 몽타주를 재생합니다.
+ * - 공격 타이머를 초기화합니다.
+ * - 체력바를 화면에서 숨깁니다.
+ * - 캡슐 컴포넌트를 비활성화하여 충돌 처리를 중단합니다.
+ * - 사망 후 지정된 시간(DeathLifeSpan)이 경과하면 캐릭터를 제거합니다.
+ */
 void AEnemy::Die()
 {
-	// TODO: 죽는 몽타주 재생
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (AnimInstance && DeathMontage)
-	{
-		AnimInstance->Montage_Play(DeathMontage);
-		
-		const int32 Selection = FMath::RandRange(0, 1);
-		FName SelectionName = FName("Death1");
-		DeathPose = EDeathPose::EDP_Death1;
-		
-		switch (Selection)
-		{
-		case 0:
-			SelectionName = FName("Death1");
-			DeathPose = EDeathPose::EDP_Death1;
-			break;
-		
-		case 1:
-			SelectionName = FName("Death2");
-			DeathPose = EDeathPose::EDP_Death2;
-			break;
-		
-		default:
-			break;
-		}
-		AnimInstance->Montage_JumpToSection(SelectionName, DeathMontage);
-	}
-
-	if (HealthBarWidget)
-	{
-		HealthBarWidget->SetVisibility(false);
-	}
-	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	SetLifeSpan(3.f);
+	Super::Die();
+	EnemyState = EEnemyState::EES_Dead;
+	// PlayDeathMontage();
+	ClearAttackTimer();
+	HideHealthBar();
+	DisableCapsule();
+	SetLifeSpan(DeathLifeSpan);
+	GetCharacterMovement()->bOrientRotationToMovement = false;
+	SetWeaponCollisionEnabled(ECollisionEnabled::NoCollision);
+	DisableMeshCollision();
+	SpawnSoul();
 }
 
+/**
+ * 지정된 대상으로 AI를 이동시킵니다.
+ * @param Target 이동할 목표 액터
+ * @note 도착 허용 반경은 60 유닛으로 설정됩니다.
+ */
 void AEnemy::MoveToTarget(AActor* Target)
 {
 	if (EnemyController == nullptr || Target == nullptr) return;
 	FAIMoveRequest MoveRequest; // AI 이동 요청 생성
 	MoveRequest.SetGoalActor(Target); // 목표 액터 설정
-	MoveRequest.SetAcceptanceRadius(15.f); // 목표에 얼마나 가까이 가면 도착으로 간주할지 설정
+	MoveRequest.SetAcceptanceRadius(AcceptanceRadius); // 목표에 얼마나 가까이 가면 도착으로 간주할지 설정
 	EnemyController->MoveTo(MoveRequest); // 이동 요청 실행, 이동 경로를 NavPath에 저장
 }
+
+/**
+ * 대상이 지정된 반경 내에 있는지 확인합니다.
+ * @param Target 확인할 대상 액터
+ * @param Radius 검사할 반경
+ * @return 대상이 반경 내에 있으면 true, 그렇지 않으면 false
+ */
 
 bool AEnemy::InTargetRange(AActor* Target, double Radius)
 {
 	if (Target == nullptr) return false;
 	const double DistanceToTarget = (Target->GetActorLocation() - GetActorLocation()).Size();
-	DRAW_SPHERE_SingleFrame(GetActorLocation());
-	DRAW_SPHERE_SingleFrame(Target->GetActorLocation());
 	return DistanceToTarget <= Radius;
 }
 
+/**
+ * 현재 순찰 대상을 제외한 다른 순찰 지점 중 하나를 무작위로 선택합니다.
+ * @return 선택된 순찰 대상, 유효한 대상이 없으면 nullptr
+ */
 AActor* AEnemy::ChoosePatrolTarget()
 {
 	// 목표 배열 생성
@@ -157,213 +168,307 @@ AActor* AEnemy::ChoosePatrolTarget()
 		}
 	}
 	
-	const int32 NumPatrolTargets = PatrolTargets.Num();
+	const int32 NumPatrolTargets = ValidTargets.Num();
 	if (NumPatrolTargets > 0)
 	{
 		const int32 TargetSelection = FMath::RandRange(0, NumPatrolTargets - 1);
-		return PatrolTargets[TargetSelection];
+		return ValidTargets[TargetSelection];
 	}
 	return nullptr;
 }
+/**
+ * AI 캐릭터가 공격을 수행합니다.
+ * AttackMontage를 재생하여 공격 애니메이션을 실행합니다.
+ */
+void AEnemy::Attack()
+{
+	Super::Attack();
+	if (CombatTarget == nullptr) return;
+	EnemyState = EEnemyState::EES_Engaged;
+	PlayAttackMontage();
+}
 
+void AEnemy::AttackEnd()
+{
+	EnemyState = EEnemyState::EES_NoState;
+	CheckCombatTarget();
+}
+
+void AEnemy::ClearPatrolTimer()
+{
+	GetWorldTimerManager().ClearTimer(PatrolTimer);
+}
+
+bool AEnemy::CanChaseTarget()
+{
+	return
+	EnemyState != EEnemyState::EES_Dead &&
+	EnemyState != EEnemyState::EES_Chasing &&
+	EnemyState < EEnemyState::EES_Attacking;
+}
+
+bool AEnemy::IsTargetPlayer(const APawn* Target)
+{
+	return Target && Target->ActorHasTag(FName("EngageableTarget"));
+}
+
+/**
+ * AI가 Pawn을 시야에 포착했을 때 호출되는 함수
+ * @param SeenPawn 시야에 포착된 Pawn
+ */
 void AEnemy::PawnSeen(APawn* SeenPawn)
 {
-	if (EnemyState == EEnemyState::EES_Chasing) return;
-	if (SeenPawn->ActorHasTag("SlashCharacter"))
+	const bool bShouldChaseTarget = CanChaseTarget() && IsTargetPlayer(SeenPawn);
+
+	if (bShouldChaseTarget)
 	{
-		GetWorldTimerManager().ClearTimer(PatrolTimer);
-		GetCharacterMovement()->MaxWalkSpeed = 300.f;
 		CombatTarget = SeenPawn;
-		
-		if (EnemyState != EEnemyState::EES_Attacking)
-		{
-			EnemyState = EEnemyState::EES_Chasing;
-			MoveToTarget(CombatTarget);
-			
-		}
+		ClearPatrolTimer();
+		ChaseTarget();
 	}
 }
 
+/**
+ * 현재 AI가 공격할 수 있는지 여부를 확인합니다.
+ * 공격 범위(AttackRadius) 내에 있으며, 공격 중이지 않고, 사망 상태가 아닐 때 true를 반환합니다.
+ * @return 공격 가능한 상태일 경우 true, 그렇지 않을 경우 false
+ */
+bool AEnemy::CanAttack()
+{
+	return IsInsideAttackRadius() && !IsAttacking() && !IsDead() && !IsEngaged();
+}
+
+/**
+ * AI 캐릭터가 파괴될 때 호출됩니다.
+ * 기본 클래스를 통해 파괴 프로세스를 처리한 후, 장착된 무기(EquippedWeapon)가 있을 경우 해당 무기를 파괴합니다.
+ */
+void AEnemy::Destroyed()
+{
+	if (EquippedWeapon)
+	{
+		EquippedWeapon->Destroy();
+	}
+}
+
+/**
+ * 순찰 타이머가 완료된 후 호출됩니다.
+ * AI를 다음 순찰 지점으로 이동시킵니다.
+ */
 void AEnemy::PatrolTimerFinished()
 {
 	MoveToTarget(PatrolTarget);
 }
 
-void AEnemy::CheckCombatTarget()
+void AEnemy::HideHealthBar()
 {
-	if (!InTargetRange(CombatTarget, CombatRadius)) // 전투 대상이 범위 밖에 있으면
+	if (HealthBarWidget)
 	{
-		CombatTarget = nullptr; // 대상 초기화
-		if (HealthBarWidget)
-		{
-			HealthBarWidget->SetVisibility(false); // 체력바 숨김
-		}
-		EnemyState = EEnemyState::EES_Patrolling;
-		GetCharacterMovement()->MaxWalkSpeed = 125.f; // 순찰 속도로 변경/ 상태를 순찰로 변경
-		MoveToTarget(PatrolTarget); // 순찰 지점으로 이동
-	}
-	// 공격 반경에서 벗어났는지
-	else if (!InTargetRange(CombatTarget, AttackRadius) && EnemyState != EEnemyState::EES_Chasing)
-	{
-		// outside attack range, chase character, 공격 범위 밖, 추격 캐릭터
-		EnemyState = EEnemyState::EES_Chasing;
-		GetCharacterMovement()->MaxWalkSpeed = 300.f;
-		MoveToTarget(CombatTarget);
-	}
-	else if (InTargetRange(CombatTarget, CombatRadius), EnemyState != EEnemyState::EES_Attacking)
-	{
-		EnemyState = EEnemyState::EES_Attacking;
-		// TODO: play Enemy Attack Montage
+		HealthBarWidget->SetVisibility(false); // 체력바 숨김
 	}
 }
 
+void AEnemy::ShowHealthBar()
+{
+	if (HealthBarWidget)
+	{
+		HealthBarWidget->SetVisibility(true); // 체력바 숨김
+	}
+}
+
+void AEnemy::LoseInterest()
+{
+	CombatTarget = nullptr; // 대상 초기화
+	HideHealthBar(); // 체력바 숨김
+}
+
+void AEnemy::StartPatrolling()
+{
+	EnemyState = EEnemyState::EES_Patrolling;
+	GetCharacterMovement()->MaxWalkSpeed = PatrollingSpeed; // 순찰 속도로 변경/ 상태를 순찰로 변경
+	MoveToTarget(PatrolTarget); // 순찰 지점으로 이동
+}
+
+bool AEnemy::IsOutsideCombatRadius()
+{
+	return !InTargetRange(CombatTarget, CombatRadius);
+}
+
+bool AEnemy::IsOutsideAttackRadius()
+{
+	return !InTargetRange(CombatTarget, AttackRadius);
+}
+
+bool AEnemy::IsInsideAttackRadius()
+{
+	return InTargetRange(CombatTarget, AttackRadius);
+}
+
+bool AEnemy::IsChasing()
+{
+	return EnemyState == EEnemyState::EES_Chasing;
+}
+
+bool AEnemy::IsAttacking()
+{
+	return EnemyState == EEnemyState::EES_Attacking;
+}
+
+/**
+ * 공격 상태로 전환하고 AttackMin~AttackMax 사이의 랜덤한 시간 후 공격을 실행하는 타이머를 설정합니다.
+ */
+void AEnemy::StartAttackTimer()
+{
+	EnemyState = EEnemyState::EES_Attacking;
+	const float AttackTime = FMath::RandRange(AttackMin, AttackMax);
+	GetWorldTimerManager().SetTimer(AttackTimer, this, &AEnemy::Attack, AttackTime);
+}
+
+/**
+ * 현재 실행 중인 공격 타이머를 초기화하여 공격 주기를 중단합니다.
+ */
+void AEnemy::ClearAttackTimer()
+{
+	GetWorldTimerManager().ClearTimer(AttackTimer);
+}
+
+void AEnemy::ChaseTarget()
+{
+	EnemyState = EEnemyState::EES_Chasing;
+	GetCharacterMovement()->MaxWalkSpeed = ChasingSpeed;
+	MoveToTarget(CombatTarget);
+}
+
+bool AEnemy::IsEngaged()
+{
+	return EnemyState == EEnemyState::EES_Engaged;
+}
+
+/**
+ * 전투 상황을 체크하고 적절한 AI 행동을 결정합니다.
+ * - 전투 반경 밖: 관심 상실 및 순찰 시작
+ * - 공격 반경 밖: 대상 추적
+ * - 공격 반경 내: 공격 시작
+ */
+void AEnemy::CheckCombatTarget()
+{
+	if (IsOutsideCombatRadius())
+	{
+		ClearAttackTimer();
+		LoseInterest();
+		if (!IsEngaged()) StartPatrolling();
+	}
+	else if (IsOutsideAttackRadius() && !IsChasing())
+	{
+		ClearAttackTimer();
+		if (!IsEngaged()) ChaseTarget();
+	}
+	else if (CanAttack())
+	{
+		StartAttackTimer();
+	}
+}
+
+
+bool AEnemy::ActorsSameType(AActor* OtherActor)
+{
+	return GetOwner()->ActorHasTag(TEXT("Enemy")) && OtherActor->ActorHasTag(TEXT("Enemy"));
+}
+
+void AEnemy::ActivateArmCollision(bool bActivate)
+{
+	// 팔 콜리전 활성화/비활성화
+	ECollisionEnabled::Type CollisionType = bActivate ? 
+		ECollisionEnabled::QueryOnly : 
+		ECollisionEnabled::NoCollision;
+}
+
+/**
+ * 순찰 대상과의 거리를 체크하고 새로운 순찰 지점을 설정합니다.
+ * 현재 순찰 지점에 도달하면 WaitMin~WaitMax 시간 후 다음 지점으로 이동합니다.
+ */
 void AEnemy::CheckPatrolTarget()
 {
 	if (InTargetRange(PatrolTarget, PatrolRadius))
 	{
 		PatrolTarget = ChoosePatrolTarget();
-		const float WaitTime = FMath::RandRange(WaitMin, WaitMax);
+		const float WaitTime = FMath::RandRange(PatrolWaitMin, PatrolWaitMax);
 		GetWorldTimerManager().SetTimer(PatrolTimer, this, &AEnemy::PatrolTimerFinished, WaitTime);
-		// MoveToTarget(PatrolTarget);
 	}
 }
 
-void AEnemy::Tick(float DeltaTime)
+/**
+ * AI가 사망 상태(EES_Dead)인지 여부를 반환합니다.
+ * @return AI가 사망 상태(EES_Dead)인지 여부
+ */
+bool AEnemy::IsDead()
 {
-	Super::Tick(DeltaTime);
-	// 순찰 상태가 아니면
-	if (EnemyState > EEnemyState::EES_Patrolling)
+	return EnemyState == EEnemyState::EES_Dead;
+}
+
+/**
+ * 피해를 받았을 때 호출되는 함수
+ * @param ImpactPoint 피해를 입은 위치
+ */
+void AEnemy::GetHit_Implementation(const FVector& ImpactPoint, AActor* Hitter)
+{
+	Super::GetHit_Implementation(ImpactPoint, Hitter);
+	if (!IsDead()) ShowHealthBar();
+	ClearPatrolTimer();
+	ClearAttackTimer();
+	SetWeaponCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	StopAttackMontage();
+	if (IsInsideAttackRadius())
 	{
-		CheckCombatTarget();
+		if (!IsDead()) StartAttackTimer();
 	}
-	else
+}
+
+void AEnemy::HandleDamage(float DamageAmount)
+{
+	Super::HandleDamage(DamageAmount);
+
+	if (Attribute && HealthBarWidget)
 	{
-		CheckPatrolTarget();
+		HealthBarWidget->SetHealthBarPercent(Attribute->GetHealthPercent());
 		
 	}
 }
 
-void AEnemy::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+/**
+ * 데미지 처리 함수
+ * @param DamageAmount 받은 데미지량
+ * @param DamageEvent 데미지 이벤트 정보
+ * @param EventInstigator 데미지를 가한 컨트롤러
+ * @param DamageCauser 데미지를 가한 액터
+ * @return 처리된 데미지량
+ */
+float AEnemy::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-}
-
-void AEnemy::DirectionalHitReact(const FVector& ImpactPoint)
-{
-	/**
-	 * 맞은 방향을 계산하여 피격 리액션 방향을 판별하는 절차:
-	 * 1. Enemy의 전방 벡터(Forward Vector)를 구한다
-	 * 2. 피격된 지점(ImpactPoint)과 Enemy 위치를 기준으로 ToHit 방향 벡터를 구한다
-	 * 3. ToHit과 전방 벡터 사이의 내적(Dot Product)을 계산해 앞/뒤 여부를 판단한다
-	 * 4. 이후 필요 시 오른쪽 벡터(Right Vector)로 좌/우 여부도 판단한다
-	 */
-
-	// 1. Enemy의 전방 벡터 (월드 좌표 기준)
-	const FVector Forward = GetActorForwardVector();
-
-	// 2. 피격 지점의 Z값을 그대로 유지 (현재는 그대로 사용 중)
-	const FVector ImpactLowered(ImpactPoint.X, ImpactPoint.Y, GetActorLocation().Z);
-
-	// 3. ToHit 벡터 = Enemy → 피격 지점 방향 :: “적 → 공격자” 방향 벡터
-	const FVector ToHit = (ImpactLowered - GetActorLocation()).GetSafeNormal();
-
-	// 4. 전방 벡터와 ToHit 벡터의 내적 계산 → 방향 간 각도를 구하는 데 사용 :: 내적 (Dot Product) 구하기
-	// CosTheta가 1이면 → 정면에서 맞음
-	// CosTheta가 -1이면 → 뒤에서 맞음
-	// CosTheta가 0이면 → 옆(왼쪽 또는 오른쪽)에서 맞음
-	const double CosTheta = FVector::DotProduct(Forward, ToHit);
-
-	// 5. 내적 값의 절댓값을 이용해 실제 각도 계산 (0도 = 완전 정면, 180도 = 정반대)
-	double Theta = FMath::Abs(CosTheta);
-	Theta = FMath::RadiansToDegrees(Theta);
-
-	// Forward(적 전방 벡터)와 ToHit(공격 지점 방향 벡터)의 외적을 통해 회전 방향(좌/우)을 판단
-	const FVector CrossProduct = FVector::CrossProduct(Forward, ToHit);
-
-	// Z값이 음수이면 공격자가 적의 왼쪽에서 공격해온 것 → Theta를 음수로 바꿔 왼쪽임을 표현
-	if (CrossProduct.Z < 0)
-	{
-		// 각도를 음수로 바꿔서 왼쪽에서 맞았음을 나타냄
-		Theta *= -1.f;
-	}
-
-	FName SectionName("FromBack");
-	
-	if (Theta >= -45.f && Theta < 45.f)
-	{
-		SectionName = FName("FromFront");
-	}
-	else if (Theta >= -135.f && Theta < -45.f)
-	{
-		SectionName = FName("FromLeft");
-	}else if (Theta >= 45.f && Theta < 135.f)
-	{
-		SectionName = FName("FromRight");
-	}
-
-	PlayHitReactMontage(SectionName);
-
-	/*
-	UKismetSystemLibrary::DrawDebugArrow(this, GetActorLocation(), GetActorLocation() + CrossProduct * 100.f, 5.f, FColor::Blue, 5.f);
-
-	// 화면에 디버그 메시지로 각도 출력
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(1, 5.f, FColor::Green, FString::Printf(TEXT("Theta: %f"), Theta));
-	}
-	UKismetSystemLibrary::DrawDebugArrow(this, GetActorLocation(), GetActorLocation() + Forward * 60.f, 5.f, FColor::Red, 5.f);
-	UKismetSystemLibrary::DrawDebugArrow(this, GetActorLocation(), GetActorLocation() + ToHit * 60.f, 5.f, FColor::Green, 5.f);
-	*/
-}
-
-void AEnemy::GetHit_Implementation(const FVector& ImpactPoint)
-{
-	// 맞은 위치 시각화 (마젠타 색상 구)
-	// DRAW_SPHERE_COLOR(ImpactPoint, FColor::Magenta);
-	if (HealthBarWidget)
-	{
-		HealthBarWidget->SetVisibility(true);
-	}
-
-	if (Attributes && Attributes->IsAlive())
-	{
-		DirectionalHitReact(ImpactPoint);
-	}
-	else
-	{
-		Die();
-	}
-
-	if (HitSound)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, HitSound, ImpactPoint);
-	}
-
-	if (HitParticles && GetWorld())
-	{
-		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), HitParticles, ImpactPoint);
-	}
-}
-
-float AEnemy::TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator,
-	AActor* DamageCauser)
-{
-	if (Attributes && HealthBarWidget)
-	{
-		Attributes->ReceiveDamage(DamageAmount);
-		HealthBarWidget->SetHealthBarPercent(Attributes->GetHealthPercent());
-		
-	}
-
-	// EventInstigator는 피해를 입히도록 유도한 컨트롤러(AController)*
-	// 예를 들어, 플레이어가 공격 버튼을 눌러 AI를 공격했다면, 이 컨트롤러는 플레이어 컨트롤러가 된다
-	// EventInstigator->GetPawn()은 공격자의 캐릭터(또는 Pawn) 
+	HandleDamage(DamageAmount);
 	CombatTarget = EventInstigator->GetPawn();
+	
+	if (IsInsideAttackRadius())
+	{
+		EnemyState = EEnemyState::EES_Attacking;
+	}
+	else if (IsOutsideAttackRadius())
+	{
+		ChaseTarget();
+	}
 
-	// TODO: 공격을 받으면 공격한 대상을 쫓게
-	EnemyState = EEnemyState::EES_Chasing;
-	MoveToTarget(CombatTarget);
-	GetCharacterMovement()->MaxWalkSpeed = 300.f;
 	return DamageAmount;
+}
+
+void AEnemy::SpawnSoul()
+{
+	UWorld* World = GetWorld();
+	if (World && SoulClass && Attribute)
+	{
+		ASoul* SpawnSoul = World->SpawnActor<ASoul>(SoulClass, GetActorLocation(), GetActorRotation());
+		if (SpawnSoul)
+		{
+			SpawnSoul->SetSouls(Attribute->GetSouls());
+		}
+	}
 }

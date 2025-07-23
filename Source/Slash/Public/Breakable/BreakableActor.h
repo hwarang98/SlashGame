@@ -17,7 +17,8 @@ class SLASH_API ABreakableActor : public AActor, public IHitInterface
 public:	
 	ABreakableActor();
 	virtual void Tick(float DeltaTime) override;
-	virtual void GetHit_Implementation(const FVector& ImpactPoint) override;
+
+	virtual void GetHit_Implementation(const FVector& ImpactPoint, AActor* Hitter) override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -29,8 +30,9 @@ protected:
 	class UCapsuleComponent* Capsule;
 
 private:
-	UPROPERTY(EditAnywhere, Category = "파괴 오브젝트 설정")
+
+	UPROPERTY(EditAnywhere, Category = "Breakable Properties")
 	TArray<TSubclassOf<class ATreasure>> TreasureClasses;
 
-	bool bBreaken = false;
+	bool bBroken = false;
 };

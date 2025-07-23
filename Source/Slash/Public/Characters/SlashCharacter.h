@@ -3,22 +3,27 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
+#include "BaseCharacter.h"
 #include "InputActionValue.h"
 #include "CharacterType.h"
+#include "Interface/PickupInterface.h"
 #include "SlashCharacter.generated.h"
 
 class AItem;
-class AWeapon;
+class ASoul;
+class ATreasure;
+class AHealPotion;
 class UInputAction;
 class UAnimMontage;
+class USlashOverlay;
 class UGroomComponent;
 class UCameraComponent;
 class USpringArmComponent;
+class UStaticMeshComponent;
 class UInputMappingContext;
 
 UCLASS()
-class SLASH_API ASlashCharacter : public ACharacter
+class SLASH_API ASlashCharacter : public ABaseCharacter, public IPickupInterface
 {
 	GENERATED_BODY()
 
@@ -26,18 +31,43 @@ public:
 	ASlashCharacter();
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
-	UFUNCTION(BlueprintCallable)
-	void SetWeaponCollisionEnabled(ECollisionEnabled::Type CollisionEnabled);
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void GetHit_Implementation(const FVector& ImpactPoint, AActor* Hitter) override;
+	virtual void SetOverlappingItem(AItem* Item) override;
+	virtual void AddSoul(ASoul* Soul) override;
+	virtual void AddGold(ATreasure* ATreasure) override;
+	virtual void AddHealth(AHealPotion* AHealPotion) override;
 
 	/*  { OverlappingItem = Item; } 항목이 중첩되게 적용가능 setter 함수임
-	 *  FORCEINLINE inline은 C++에서 함수의 인라인(inline) 처리를 강력하게 요청하는 언리얼 스타일의 방식이에요.
+	 *  FORCEINLINE inline은 C++에서 함수의 인라인(inline) 처리를 강력하게 요청하는 언리얼 스타일의 방식
 	 */
-	FORCEINLINE void SetOverlappingItem(AItem* Item) { OverlappingItem = Item; }
-	FORCEINLINE ECharacterState GetCharacterState() const { return CharacterState; };
+	FORCEINLINE ECharacterState GetCharacterState() const { return CharacterState; }
+	FORCEINLINE EActionState GetActionState() const { return ActionState; }
 
 protected:
 	virtual void BeginPlay() override;
+
+	/* call back Input */
+	void Move(const FInputActionValue& Value);
+	void Look(const FInputActionValue& Value);
+	virtual void Jump() override;
+	void Dodge();
+	void StartWalking();
+	void EKeyPressed();
+	void StrongAttack();
+	virtual void Attack() override;
+	virtual void DodgeEnd() override;
+
+	/* 전투관련 함수들 */
+	virtual void AttackEnd() override;
+	virtual bool CanAttack() override;
+	virtual void Die() override;
+	void PlayEquipMontage(const FName& SectionName);
+	bool CanDisarm();
+	bool CanArm();
+	bool IsOccupied();
+	bool HasDodgeEnoughStamina();
+	bool HasAttackEnoughStamina();
 	
 	/* 입력 컨텍스트 부착 */
 	UPROPERTY(EditAnywhere, Category = Input)
@@ -69,42 +99,14 @@ protected:
 	UInputAction* AttackAction;
 
 
-	/* 걷기 부착 */
+	/* 구르기 부착 */
 	UPROPERTY(EditAnywhere, Category = Input)
 	UInputAction* DodgeAction;
 
 	/* 공격 액션 부착 */
 	UPROPERTY(EditAnywhere, Category = Input)
 	UInputAction* StrongAttackAction;
-
-
-
-	/**
-	 * call back Input
-	 */
-	void Move(const FInputActionValue& Value);
-	void Look(const FInputActionValue& Value);
-	void StartWalking();
-	void Jump();
-	void EKeyPressed();
-	// virtual void Attack() override;
-	void Dodge();
-	void Attack();
-	void StrongAttack();
-
-	/**
-	 * play montage functions
-	 */
-	void PlayAttackMontage();
-	void PlayEquipMontage(const FName& SectionName);
-
-	UFUNCTION(BlueprintCallable)
-	void AttackEnd();
-	bool CanAttack();
-	/* 무장해제 가능 여부 */
-	bool CanDisarm();
-	/* 무장장착 가능 여부 */
-	bool CanArm();
+	
 
 	UFUNCTION(BlueprintCallable)
 	void Disarm();
@@ -115,12 +117,25 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void FinishEquipping();
 	
-private:
+	UFUNCTION(BlueprintCallable)
+	void HitReactEnd();
+	
 	ECharacterState CharacterState = ECharacterState::ECS_Unequipped;
 
 	UPROPERTY(BlueprintReadWrite, meta = (AllowPrivateAccess = "true"))
 	EActionState ActionState = EActionState::EAS_Unoccupied;
+
+	UPROPERTY()
+	USlashOverlay* SlashOverlay;
+
 	
+private:
+	void SetHUDHealth();
+	void SetHUDStamina();
+	bool IsUnoccupied();
+	void InitializeSlashOverlay();
+
+	/* 캐릭터 컴포넌트 */
 	/**
 	 * 스프링암 컴포넌트
 	 */
@@ -153,11 +168,7 @@ private:
 	
 	/* 걷기상태 true = 뛰기, false = 걷기 */
 	bool bIsWalking = false;
-
-	/* Animation 몽타주 */
-	UPROPERTY(EditDefaultsOnly, Category = Montages)
-	UAnimMontage* AttackMontage;
-
+	
 	/* Animation 몽타주 */
 	UPROPERTY(EditDefaultsOnly, Category = Montages)
 	UAnimMontage* StrongAttackMontage;
@@ -169,9 +180,12 @@ private:
 	/* VisibleInstanceOnly = 디테일 패널에서만 볼수있음 */
 	UPROPERTY(VisibleInstanceOnly)
 	AItem* OverlappingItem;
-	
-	UPROPERTY(VisibleInstanceOnly, Category = "무기")
-	AWeapon* EquippedWeapon;
+
+	/**
+	 * 구름컴포넌트 부착
+	 */
+	UPROPERTY(VisibleAnywhere, Category = Weapon)
+	UStaticMeshComponent* KatanaSheath;
 	
 	int32 Selection = 0;
 	int32 StrongAttackSection = 0;
