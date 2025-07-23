@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CharacterType.h"
 #include "GameFramework/Character.h"
 #include "Interface/HitInterface.h"
 #include "BaseCharacter.generated.h"
@@ -20,46 +21,46 @@ public:
 	ABaseCharacter();
 	virtual void Tick(float DeltaTime) override;
 
-	UFUNCTION(BlueprintCallable)
-	void SetWeaponCollisionEnabled(ECollisionEnabled::Type CollisionEnabled);
+	FORCEINLINE TEnumAsByte<EDeathPose> GetDeathPose() const { return DeathPose; }
+
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void GetHit_Implementation(const FVector& ImpactPoint, AActor* Hitter) override;
 	virtual void Attack();
 	virtual void Die();
-	virtual void PlayHitAttackMontage();
-	virtual void PlayHitReactMontage(const FName& SectionName); // 피격 몽타주 재생
 	virtual void HandleDamage(float DamageAmount);
 	virtual bool CanAttack();
 	
-	void PlayAttackMontage();
+	virtual void PlayHitAttackMontage();
+	virtual void PlayHitReactMontage(const FName& SectionName); // 피격 몽타주 재생
+	virtual int32 PlayAttackMontage();
+	virtual int32 PlayDeathMontage();
+	virtual void PlayDodgeMontage();
+	void StopAttackMontage();
+	
 	void DirectionalHitReact(const FVector& ImpactPoint);
 	void PlayHitSound(const FVector& ImpactPoint);
 	void SpawnHitParticles(const FVector& ImpactPoint);
-	void PlayMontageSection(UAnimMontage* Montage, const FName& SectionName);
+	void DisableCapsule();
+	void DisableMeshCollision();
 	
 	bool IsAlive();
 
 	UFUNCTION(BlueprintCallable)
+	FVector GetTranslationWarpTarget();
+	
+	UFUNCTION(BlueprintCallable)
+	FVector GetRotationWarpTarget();
+
+	UFUNCTION(BlueprintCallable)
+	void SetWeaponCollisionEnabled(ECollisionEnabled::Type CollisionEnabled);
+
+	UFUNCTION(BlueprintCallable)
 	virtual void AttackEnd();
-	
-	
-	UPROPERTY(VisibleInstanceOnly, Category = "무기")
-	AWeapon* EquippedWeapon;
 
-	/* ==== Animation 몽타주 ==== */
-	UPROPERTY(EditDefaultsOnly, Category = Montages)
-	UAnimMontage* AttackMontage;
-	
-	UPROPERTY(EditDefaultsOnly, Category = Montages)
-	UAnimMontage* HitReactMontage;
-	
-	UPROPERTY(EditDefaultsOnly, Category = Montages)
-	UAnimMontage* DeathMontage;
-
-	UPROPERTY(EditDefaultsOnly, Category = Combat)
-	TArray<FName> AttackMontageSection;
-	/* ==== Animation 몽타주 ==== */
+	UFUNCTION(BlueprintCallable)
+	virtual void DodgeEnd();
 	
 	/**
 	 * Components
@@ -67,10 +68,51 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UAttributeComponent* Attribute;
 
-private:
-	UPROPERTY(EditDefaultsOnly, Category = Sounds)
+	UPROPERTY(BlueprintReadOnly, Category = Combat)
+	AActor* CombatTarget;
+
+	UPROPERTY(BlueprintReadOnly, Category = Combat)
+	double WarpTargetDistance = 75.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
 	USoundBase* HitSound;
 
-	UPROPERTY(EditDefaultsOnly, Category = VisualEffects)
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
 	UParticleSystem* HitParticles;
+	
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
+	UParticleSystem* AttackStamina;
+	
+	UPROPERTY(VisibleAnywhere, Category = Weapon)
+	AWeapon* EquippedWeapon;
+
+	UPROPERTY(BlueprintReadOnly)
+	TEnumAsByte<EDeathPose> DeathPose;
+
+
+private:
+	void PlayMontageSection(UAnimMontage* Montage, const FName& SectionName);
+	int32 PlayRandomMontageSection(UAnimMontage* Montage, const TArray<FName>& SectionNames);
+
+	/* ==== Animation 몽타주 ==== */
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
+	UAnimMontage* AttackMontage;
+	
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
+	UAnimMontage* HitReactMontage;
+	
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
+	UAnimMontage* DeathMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
+	TArray<FName> AttackMontageSection;
+
+	UPROPERTY(EditDefaultsOnly, Category = Combat)
+	TArray<FName> DeathMontageSection;
+
+	/* 걷기 부착 */
+	UPROPERTY(EditAnywhere, Category = combat)
+	UAnimMontage* DodgeMontage;
+	/* ==== Animation 몽타주 ==== */
+	
 };

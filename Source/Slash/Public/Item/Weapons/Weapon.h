@@ -16,61 +16,52 @@ UCLASS()
 class SLASH_API AWeapon : public AItem
 {
 	GENERATED_BODY()
-
 public:
 	AWeapon();
 	void Equip(USceneComponent* InParent, FName InSocketName, AActor* NewOwner, APawn* NewInstigator);
-	void AttackMeshToSocket(USceneComponent* InParent, FName InSocketName);
-	
+	void DeactivateEmbers();
+	void DisableSphereCollision();
+	void PlayEquipSound();
+	void AttachMeshToSocket(USceneComponent* InParent, const FName& InSocketName);
+
 	TArray<AActor*> IgnoreActors;
-	
-	FORCEINLINE UBoxComponent* GetWeaponBox() const { return WeaponBox; };
-
 protected:
-	virtual void BeginPlay() override; 
-	
-	virtual void OnSphereOverlap(
-		UPrimitiveComponent* OverlappedComponent,
-		AActor* OtherActor,
-		UPrimitiveComponent* OtherComp,
-		int32 OtherBodyIndex,
-		bool bFromSweep,
-		const FHitResult& SweepResult
-	) override;
-
-	virtual void OnSphereEndOverlap(
-		UPrimitiveComponent* OverlappedComponent,
-		AActor* OtherActor,
-		UPrimitiveComponent* OtherComp,
-		int32 OtherBodyIndex
-	) override;
+	virtual void BeginPlay() override;
 
 	UFUNCTION()
-	void OnBoxOverlap(
-		UPrimitiveComponent* OverlappedComponent,
-		AActor* OtherActor,
-		UPrimitiveComponent* OtherComp,
-		int32 OtherBodyIndex,
-		bool bFromSweep,
-		const FHitResult& SweepResult
-	);
+	void OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	bool ActorIsSameType(AActor* OtherActor);
+
+	void ExecuteGetHit(FHitResult& BoxHit);
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void CreateFields(const FVector& FieldLocation);
-
 private:
-	UPROPERTY(EditAnywhere, Category = "무기 속성")
+
+	void BoxTrace(FHitResult& BoxHit);
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
+	FVector BoxTraceExtent = FVector(5.f);
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
+	bool bShowBoxDebug = false;
+
+	UPROPERTY(EditAnywhere, Category = "Weapon Properties") 
 	USoundBase* EquipSound;
 
-	UPROPERTY(VisibleAnywhere, Category = "무기 속성")
+	UPROPERTY(VisibleAnywhere, Category = "Weapon Properties")
 	UBoxComponent* WeaponBox;
 
-	UPROPERTY(VisibleAnywhere, Category = "무기 속성")
-	USceneComponent* BoxTraceStart;
+	UPROPERTY(VisibleAnywhere)
+	USceneComponent* BoxTraceStarts;
 
-	UPROPERTY(VisibleAnywhere, Category = "무기 속성")
-	USceneComponent* BoxTraceEnd;
+	UPROPERTY(VisibleAnywhere)
+	USceneComponent* BoxTraceEnds;
 
-	UPROPERTY(EditAnywhere, Category = "무기 속성")
+	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
 	float Damage = 20.f;
+
+public:
+	FORCEINLINE UBoxComponent* GetWeaponBox() const { return WeaponBox; }
 };

@@ -4,16 +4,21 @@
 
 #include "CoreMinimal.h"
 #include "Item/Item.h"
-#include "Treasure.generated.h"
+#include "Soul.generated.h"
 
+/**
+ * 
+ */
 UCLASS()
-class SLASH_API ATreasure : public AItem
+class SLASH_API ASoul : public AItem
 {
 	GENERATED_BODY()
 
 public:
-	FORCEINLINE int32 GetGold() const { return Gold; }
+	FORCEINLINE int32 GetSouls() const { return Souls; }
+	FORCEINLINE void SetSouls(int32 NumberOfSouls) { Souls = NumberOfSouls; }
 	
+
 protected:
 	virtual void OnSphereOverlap(
 		UPrimitiveComponent* OverlappedComponent,
@@ -25,6 +30,6 @@ protected:
 	) override;
 
 private:
-	UPROPERTY(EditAnywhere, Category = "보물 속성")
-	int32 Gold;
+	UPROPERTY(EditAnywhere, Category = "영혼 속성")
+	int32 Souls;
 };
